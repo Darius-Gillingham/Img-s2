@@ -1,11 +1,10 @@
 // File: serverB.js
-// Commit: remove file output and insert generated wordsets directly into Supabase
+// Commit: convert wordset generation to Supabase bucket storage in `wordsets/`
 
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
-
 console.log('=== Running serverB.js ===');
 
 const supabase = createClient(
@@ -25,11 +24,14 @@ const COMPONENT_COLUMNS = [
   'mood'
 ];
 
-async function getRandomValue(column) {
-  const { data, error } = await supabase
-    .from('prompt_components')
-    .select(column);
+function getTimestampFilename() {
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  return `wordsets-${timestamp}.json`;
+}
 
+async function getRandomValue(column) {
+  const { data, error } = await supabase.from('prompt_components').select(column);
   if (error || !data || data.length === 0) {
     console.warn(`✗ Failed to fetch ${column}:`, error || 'No data');
     return null;
@@ -46,7 +48,7 @@ async function getRandomValue(column) {
 }
 
 async function createWordset() {
-  const wordset = {};
+  const wordset = [];
 
   for (const column of COMPONENT_COLUMNS) {
     const value = await getRandomValue(column);
@@ -54,26 +56,43 @@ async function createWordset() {
       console.warn(`✗ Missing value for ${column}, skipping wordset`);
       return null;
     }
-    wordset[column] = value;
+    wordset.push(value);
   }
 
   return wordset;
 }
 
+async function uploadWordsetsToBucket(wordsets, filename) {
+  const json = JSON.stringify({ wordsets }, null, 2);
+  const { error } = await supabase.storage
+    .from('wordsets')
+    .upload(filename, new Blob([json], { type: 'application/json' }), {
+      upsert: false
+    });
+
+  if (error) {
+    console.error('✗ Upload to bucket failed:', error);
+    return;
+  }
+
+  console.log(`✓ Uploaded ${wordsets.length} wordsets as ${filename}`);
+}
+
 async function run(batchSize = 20) {
+  const wordsets = [];
+
   for (let i = 0; i < batchSize; i++) {
     const wordset = await createWordset();
-    if (!wordset) continue;
-
-    const { error } = await supabase.from('wordsets').insert(wordset);
-    if (error) {
-      console.error('✗ Failed to insert wordset:', error);
-    } else {
-      console.log(`✓ Inserted wordset #${i + 1}: ${JSON.stringify(wordset)}`);
+    if (wordset) {
+      wordsets.push(wordset);
+      console.log(`✓ Created wordset #${i + 1}`);
     }
   }
 
-  console.log(`✓ Batch complete.`);
+  if (wordsets.length > 0) {
+    const filename = getTimestampFilename();
+    await uploadWordsetsToBucket(wordsets, filename);
+  }
 }
 
 async function loopForever(intervalMs = 30000) {
