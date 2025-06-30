@@ -1,10 +1,8 @@
 // File: serverB.js
-// Commit: ensure shared prompt folder is created; loop continuously to generate wordsets
+// Commit: remove file output and insert generated wordsets directly into Supabase
 
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import fs from 'fs/promises';
-import path from 'path';
 
 dotenv.config();
 
@@ -27,17 +25,6 @@ const COMPONENT_COLUMNS = [
   'mood'
 ];
 
-const OUTPUT_DIR = './data/prompts';
-
-function getTimestampFilename() {
-  const now = new Date();
-  const timestamp = now
-    .toISOString()
-    .replace(/[-:T]/g, '')
-    .slice(0, 14); // YYYYMMDDHHMMSS
-  return `wordsets-${timestamp}.json`;
-}
-
 async function getRandomValue(column) {
   const { data, error } = await supabase
     .from('prompt_components')
@@ -59,7 +46,7 @@ async function getRandomValue(column) {
 }
 
 async function createWordset() {
-  const wordset = [];
+  const wordset = {};
 
   for (const column of COMPONENT_COLUMNS) {
     const value = await getRandomValue(column);
@@ -67,34 +54,26 @@ async function createWordset() {
       console.warn(`✗ Missing value for ${column}, skipping wordset`);
       return null;
     }
-    wordset.push(value);
+    wordset[column] = value;
   }
 
   return wordset;
 }
 
 async function run(batchSize = 20) {
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  const wordsets = [];
-
   for (let i = 0; i < batchSize; i++) {
     const wordset = await createWordset();
-    if (wordset) {
-      wordsets.push(wordset);
-      console.log(`✓ Created wordset #${i + 1}`);
+    if (!wordset) continue;
+
+    const { error } = await supabase.from('wordsets').insert(wordset);
+    if (error) {
+      console.error('✗ Failed to insert wordset:', error);
+    } else {
+      console.log(`✓ Inserted wordset #${i + 1}: ${JSON.stringify(wordset)}`);
     }
   }
 
-  const filename = getTimestampFilename();
-  const filepath = path.join(OUTPUT_DIR, filename);
-
-  await fs.writeFile(
-    filepath,
-    JSON.stringify({ wordsets }, null, 2),
-    'utf-8'
-  );
-
-  console.log(`✓ Saved ${wordsets.length} wordsets to ${filepath}`);
+  console.log(`✓ Batch complete.`);
 }
 
 async function loopForever(intervalMs = 30000) {
