@@ -1,3 +1,6 @@
+// File: serverB.js
+// Commit: ensure shared prompt folder is created; loop continuously to generate wordsets
+
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs/promises';
