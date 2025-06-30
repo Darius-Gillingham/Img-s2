@@ -94,6 +94,16 @@ async function run(batchSize = 20) {
   console.log(`✓ Saved ${wordsets.length} wordsets to ${filepath}`);
 }
 
-run().catch((err) => {
-  console.error('✗ serverB failed:', err);
-});
+async function loopForever(intervalMs = 30000) {
+  while (true) {
+    try {
+      await run(20);
+    } catch (err) {
+      console.error('✗ serverB batch failed:', err);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+}
+
+loopForever();
